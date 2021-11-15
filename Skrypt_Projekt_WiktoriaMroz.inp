@@ -1,0 +1,312 @@
+### PODSTAWOWE STATYSTYKI OPISOWE
+summary
+
+#==================================================================
+#==================================================================
+### MACIERZ KORELACJI ZMIENNYCH
+corr Y X1 X2 X3 X4
+
+#==================================================================
+#==================================================================
+### PODSTAWOWY MODEL LINIOWY - KMNK
+ols Y const X1 X2 X3 X4
+
+# test normalności rozkładu reszt modelu
+series uhat = $uhat
+normtest uhat --all
+
+#==================================================================
+#==================================================================
+### POPRAWA MODELU
+
+## METODA HELLWIGA
+y=Y
+list xlist = X1 X2 X3 X4
+#==================================================================
+function matrix dodawanie_1_binarne(scalar n, matrix pozycja)
+    kontrolna=1
+    loop j=1..n --quiet
+        if kontrolna==1
+            if pozycja[j,1]==0
+                pozycja[j,1]=1
+                kontrolna=0
+            else
+                pozycja[j,1]=0
+            endif
+        endif
+    endloop
+    return pozycja
+end function
+#================================================================
+function scalar helwig (series y, list robocza)
+    H=0
+    loop foreach j robocza --quiet
+        h=(corr(y,robocza.$j))^2
+        s=0
+        loop foreach k robocza --quiet
+            c=abs(corr(robocza.$j,robocza.$k))
+            s=s+c
+        endloop
+        h=h/s
+        H=H+h
+    endloop
+    return H
+end function
+#=================================================================
+n=nelem(xlist)
+pozycja=zeros(n,1)
+kombinacji=2^n-1
+H_max=helwig(y,xlist)
+H_rob=-1
+loop j=1..kombinacji --quiet
+    pozycja=dodawanie_1_binarne(n,pozycja)
+    robocza=xlist
+    loop foreach k xlist --quiet
+        if pozycja[k,1]==1
+            robocza=robocza-xlist.$k
+        endif
+    endloop
+    H_rob=helwig(y,robocza)
+    H_rob
+    robocza
+    if H_rob>H_max
+        H_max=H_rob
+        najlepszalista=robocza
+    endif
+endloop
+
+H_max
+najlepszalista
+#==================================================================
+#dla zbioru {X1,X2,X3,X4}
+list xlist = X1 X2 X3 X4
+list ylist = Y
+matrix X = {xlist}
+X
+matrix kor = mcorr(X)
+kor
+r1=corr(Y,X1)
+r2=corr(Y,X2)
+r3=corr(Y,X3)
+r4=corr(Y,X4)
+matrix R={r1,r2,r3,r4}
+R
+h11=(R[1,1]^2/(1+kor[1,2]+kor[1,3]+kor[1,4]))
+h12=(R[1,2]^2/(1+kor[2,1]+kor[2,3]+kor[2,4]))
+h13=(R[1,3]^2/(1+kor[3,1]+kor[3,2]+kor[3,4]))
+h14=(R[1,4]^2/(1+kor[4,1]+kor[4,2]+kor[4,3]))
+H=h11+h12+h13+h14
+#nie ma lepszej pojemności informacyjenj niz X4
+
+# model po poprawie (Hellwig)
+ols Y const X4
+modtest --normality
+
+#==================================================================
+#==================================================================
+## METODA KROKOWA WSTECZ
+
+# model podstawowy
+ols Y const X1 X2 X3 X4
+
+# 1. odrzucenie
+ols Y const X1 X3 X4
+modtest --normality
+
+#==================================================================
+#==================================================================
+### WYBRANY MODEL
+ols Y const X1 X3 X4
+
+#==================================================================
+#==================================================================
+### EFEKT KATALIZY
+
+#oznaczenia
+Y = Y
+list xlist = X1 X3 X4
+
+#================================================================
+scalar n = nobs(Y) #liczba obserwacji
+scalar k = nelem(xlist) #liczba zmiennych (bez stałej)
+
+#para korelacyjna:
+matrix R = zeros(k,k)
+matrix R0 = zeros(k,1)
+loop foreach i xlist --quiet
+    R0[i,1]=corr(Y,xlist.$i)
+    loop foreach j xlist --quiet
+        R[i,j]=corr(xlist.$i,xlist.$j)
+    endloop
+endloop  
+
+#regularna para korelacyjna
+przejscie=zeros(k,2)
+R0_regularne=sort(abs(R0))
+loop i=1..k --quiet
+    loop j=1..k --quiet
+        if R0_regularne[i,1]==abs(R0[j,1])
+            przejscie[i,1]=j
+            if R0[j,1]>0
+                przejscie[j,2]=1
+            else
+                przejscie[j,2]=-1
+            endif
+        endif
+    endloop
+endloop
+R_regularne=R
+loop i=2..k --quiet
+    loop j=1..i-1 --quiet
+        R_regularne[i,j]=przejscie[przejscie[j,1],2]*przejscie[przejscie[i,1],2]*R[przejscie[j,1],przejscie[i,1]]
+        R_regularne[j,i]=R_regularne[i,j]
+    endloop
+endloop
+przejscie
+R
+R0
+R_regularne
+R0_regularne
+
+loop foreach i xlist --quiet
+    loop foreach j xlist --quiet
+        if i>j
+        if corr(xlist.$i,Y)>0
+            ca=1
+        else
+            ca=-1
+        endif
+        if corr(xlist.$j,Y)>0
+            cb=1
+        else
+            cb=-1
+        endif
+        if abs(corr(xlist.$i,Y))>abs(corr(xlist.$j,Y))
+            if (corr(xlist.$i,xlist.$j)*ca*cb>ca*cb*corr(xlist.$j,Y)/corr(xlist.$i,Y))||(corr(xlist.$i,xlist.$j)*ca*cb<0)
+                list katalizator = xlist.$j
+                list w_parze = xlist.$j xlist.$i
+                print "KATALIZATOR:"
+                katalizator
+                print "W PARZE:"
+                w_parze
+            endif
+        else
+            if (corr(xlist.$i,xlist.$j)*ca*cb>ca*cb*corr(xlist.$i,Y)/corr(xlist.$j,Y))||(corr(xlist.$i,xlist.$j)*ca*cb<0)
+                list katalizator = xlist.$i
+                list w_parze = xlist.$i xlist.$j
+                print "KATALIZATOR:"
+                katalizator
+                print "W PARZE:"
+                w_parze
+            endif 
+        endif
+        endif
+    endloop
+endloop
+
+#netężenie efektu katalizy
+ols Y const xlist --quiet
+H=helwig(Y,xlist)
+scalar natezenie_efektu_katalizy=$rsq-H
+natezenie_efektu_katalizy
+
+#==================================================================
+#==================================================================
+### BADANIE MODELU
+
+## TEST SERII
+dataset sortby X1
+ols Y const X1 X3 X4
+series e=$uhat 
+runs e --equal
+
+#==================================================================
+## TEST RESET
+ols Y const X1 X3 X4
+reset --squares-only
+reset --cubes-only
+reset
+
+#==================================================================
+#==================================================================
+### PROBLEMY WYSTEPUJĄCE W MODELU
+
+## Normalność rozkładu składnika losowego
+ols Y const X1 X3 X4
+series uhat = $uhat
+normtest uhat --all
+
+
+## Heteroskedastyczność w modelu
+ols Y const X1 X3 X4
+modtest --breusch-pagan
+modtest --white
+
+
+#==================================================================
+#==================================================================
+### POPRAWA MODELU - UMNK
+hsk Y const X1 X3 X4
+
+#==================================================================
+#==================================================================
+### BADANIE NOWEGO MODELU
+
+#==================================================================
+## Normalność rozkladu składnika losowego
+hsk Y const X1 X3 X4
+series uhat = $uhat
+normtest uhat --all
+
+#==================================================================
+## TEST CHOWA
+hsk Y const X1 X3 X4
+scalar ess = $ess
+scalar n = $nobs
+
+smpl 1 100
+hsk Y const X1 X3 X4
+scalar ess1 = $ess
+
+smpl full
+
+smpl 101 380
+hsk Y const X1 X3 X4
+scalar ess2 = $ess
+
+smpl full
+
+scalar F_s = ((ess-ess1-ess2)/(ess1+ess2))*((n-4*3)/(4))
+pvalue F 4 n-2*4 F_s
+
+smpl full
+
+#==================================================================
+## WSPÓŁLINIOWOŚĆ
+hsk Y const X1 X3 X4
+vif
+#nie ma
+
+#==================================================================
+## KOINCYDENCJA
+hsk Y const X1 X2 X3 X4
+zmienne = $coeff
+zmienne
+corr Y X1 X3 X4
+
+#==================================================================
+## PROGNOZA PUNKTOWA (WARTOŚCI ŚREDNICH)
+hsk Y const X1 X3 X4 --vcv --quiet
+matrix x_tau = {1, mean(X1), mean(X3), mean(X4)}
+matrix a = $coeff
+scalar prognoza_punktowa = x_tau*a
+
+scalar wariancja_prognozy = x_tau*$vcv*x_tau'+$ess/$
+scalar blad_prognozy = sqrt(wariancja_prognozy)
+
+# 95% - przedzial ufnosci
+
+scalar dolna = prognoza_punktowa - critical(t,$df,0.025)*blad_prognozy
+scalar gorna = prognoza_punktowa + critical(t,$df,0.025)*blad_prognozy
+
+
